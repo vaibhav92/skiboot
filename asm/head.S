@@ -36,9 +36,6 @@
 #define GET_CPU()						\
 	clrrdi	%r13,%r1,STACK_SHIFT
 
-#define SAVE_GPR(reg,sp)	std %r##reg,STACK_GPR##reg(sp)
-#define REST_GPR(reg,sp)	ld %r##reg,STACK_GPR##reg(sp)
-
 	.section ".head","ax"
 
 	. = 0

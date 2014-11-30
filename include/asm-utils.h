@@ -41,5 +41,7 @@
 /* Load an address via the TOC */
 #define LOAD_ADDR_FROM_TOC(r, e)	ld r,e@got(%r2)
 
+#define SAVE_GPR(reg,sp)	std %r##reg,STACK_GPR##reg(sp)
+#define REST_GPR(reg,sp)	ld %r##reg,STACK_GPR##reg(sp)
 
 #endif /* __ASM_UTILS_H */

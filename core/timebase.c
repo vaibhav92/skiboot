@@ -18,6 +18,7 @@
 #include <timebase.h>
 #include <opal.h>
 #include <cpu.h>
+#include <worker.h>
 
 static void time_wait_poll(unsigned long duration)
 {
@@ -44,6 +45,11 @@ void time_wait(unsigned long duration)
 
 	if (this_cpu()->lock_depth) {
 		time_wait_nopoll(duration);
+		return;
+	}
+
+	if (c->cur_worker) {
+		work_delay(c->cur_worker, mftb() + duration);
 		return;
 	}
 
