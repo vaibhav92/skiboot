@@ -72,24 +72,22 @@ static void qemu_dt_fixup_uart(struct dt_node *lpc)
  * This adds the legacy RTC device to the device-tree
  * for Linux to use
  */
-#if 0
 static void qemu_dt_fixup_rtc(struct dt_node *lpc)
 {
 	struct dt_node *rtc;
+	char namebuf[32];
 
 	/*
 	 * Follows the structure expected by the kernel file
 	 * arch/powerpc/sysdev/rtc_cmos_setup.c
 	 */
-	rtc = dt_new_addr(lpc, "rtc", EC_RTC_PORT_BASE);
+	snprintf(namebuf, sizeof(namebuf), "rtc@i%x", 0x70);
+	rtc = dt_new(lpc, namebuf);
 	dt_add_property_string(rtc, "compatible", "pnpPNP,b00");
 	dt_add_property_cells(rtc, "reg",
 			      1, /* IO space */
-			      EC_RTC_PORT_BASE,
-			      /* 1 index/data pair per 128 bytes */
-			      (EC_RTC_BLOCK_SIZE / 128) * 2);
+			      0x70, 2);
 }
-#endif
 
 static void qemu_dt_fixup(void)
 {
@@ -106,7 +104,7 @@ static void qemu_dt_fixup(void)
 	if (!primary_lpc)
 		return;
 
-	//qemu_dt_fixup_rtc(primary_lpc);
+	qemu_dt_fixup_rtc(primary_lpc);
 	qemu_dt_fixup_uart(primary_lpc);
 }
 
