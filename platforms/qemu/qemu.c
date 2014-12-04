@@ -21,6 +21,13 @@
 #include <console.h>
 #include <opal.h>
 
+static void qemu_init(void)
+{
+	/* Setup UART console for use by Linux via OPAL API */
+	if (!dummy_console_enabled())
+		uart_setup_opal_console();
+}
+
 static void qemu_dt_fixup_uart(struct dt_node *lpc)
 {
 	/*
@@ -129,4 +136,5 @@ static bool qemu_probe(void)
 DECLARE_PLATFORM(qemu) = {
 	.name		= "Qemu",
 	.probe		= qemu_probe,
+	.init		= qemu_init,
 };
