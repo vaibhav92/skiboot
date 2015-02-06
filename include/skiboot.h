@@ -205,9 +205,6 @@ extern bool flash_load_resource(enum resource_id id, void *buf, size_t *len);
 extern void nvram_init(void);
 extern void nvram_read_complete(bool success);
 
-/* NVRAM on flash helper */
-extern int flash_nvram_init(struct flash_chip *chip, uint32_t start,
-			    uint32_t size);
 /* UART stuff */
 extern void uart_irq(void);
 extern void uart_setup_linux_passthrough(void);
