@@ -223,3 +223,81 @@ static int64_t opal_flash_erase(uint64_t id, uint64_t offset, uint64_t size,
 opal_call(OPAL_FLASH_READ, opal_flash_read, 5);
 opal_call(OPAL_FLASH_WRITE, opal_flash_write, 5);
 opal_call(OPAL_FLASH_ERASE, opal_flash_erase, 4);
+
+/* flash resource API */
+
+static const struct {
+	enum resource_id id;
+	char name[PART_NAME_MAX+1];
+} part_name_map[] = {
+	{ RESOURCE_ID_KERNEL, "KERNEL" },
+	{ RESOURCE_ID_INITRAMFS, "ROOTFS" },
+};
+
+bool flash_load_resource(enum resource_id id, void *buf, size_t *len)
+{
+	int i, rc, part_num, part_size, part_start;
+	struct ffs_handle *ffs;
+	struct flash *flash;
+	const char *name;
+	bool status;
+
+	status = false;
+
+	lock(&flash_lock);
+
+	if (!system_flash)
+		goto out_unlock;
+
+	flash = system_flash;
+
+	for (i = 0, name = NULL; i < ARRAY_SIZE(part_name_map); i++) {
+		if (part_name_map[i].id == id) {
+			name = part_name_map[i].name;
+			break;
+		}
+	}
+	if (!name) {
+		prerror("FLASH: Couldn't find partition for id %d\n", id);
+		goto out_unlock;
+	}
+
+	rc = ffs_open_flash(flash->chip, 0, flash->size, &ffs);
+	if (rc) {
+		prerror("FLASH: Can't open ffs handle\n");
+		goto out_unlock;
+	}
+
+	rc = ffs_lookup_part(ffs, name, &part_num);
+	if (rc) {
+		prerror("FLASH: No %s partition\n", name);
+		goto out_free_ffs;
+	}
+	rc = ffs_part_info(ffs, part_num, NULL,
+			   &part_start, &part_size, NULL);
+	if (rc) {
+		prerror("FLASH: Failed to get %s partition info\n", name);
+		goto out_free_ffs;
+	}
+
+	if (part_size > *len) {
+		prerror("FLASH: %s image too large (%d > %zd)\n", name,
+			part_size, *len);
+		goto out_free_ffs;
+	}
+
+	rc = flash_read(flash->chip, part_start, buf, part_size);
+	if (rc) {
+		prerror("FLASH: failed to read %s partition\n", name);
+		goto out_free_ffs;
+	}
+
+	*len = part_size;
+	status = true;
+
+out_free_ffs:
+	ffs_close(ffs);
+out_unlock:
+	unlock(&flash_lock);
+	return status;
+}
