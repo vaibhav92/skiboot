@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <bitutils.h>
 #include <types.h>
+#include <opal.h>
 
 #include <ccan/container_of/container_of.h>
 #include <ccan/list/list.h>
@@ -213,6 +214,10 @@ extern void uart_setup_opal_console(void);
 /* OCC interrupt */
 extern void occ_interrupt(uint32_t chip_id);
 extern void occ_send_dummy_interrupt(void);
+
+/* PRD */
+extern void prd_interrupt(uint32_t proc);
+extern void prd_init(void);
 
 /* Flatten device-tree */
 extern void *create_dtb(const struct dt_node *root);
