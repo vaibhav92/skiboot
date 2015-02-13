@@ -538,6 +538,7 @@ int main(int argc, char *argv[])
 	int rc;
 
 	ctx = &_ctx;
+	memset(ctx, 0, sizeof(*ctx));
 
 	/* Parse options */
 	while(1) {
