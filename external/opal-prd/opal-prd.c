@@ -24,7 +24,9 @@
 
 #include <sys/ioctl.h>
 
+#include <types.h>
 #include <asm/opal-prd.h>
+#include <opal.h>
 
 #include "hostboot-interface.h"
 
@@ -41,6 +43,8 @@ static struct opal_prd_ctx *ctx;
 
 static const char *opal_prd_devnode = "/dev/opal-prd";
 static const char *hbrt_code_region_name = "ibm,hbrt-code-image";
+static const int opal_prd_version = 1;
+static const uint64_t opal_prd_ipoll = 0xf000000000000000;
 
 /* This is the "real" HBRT call table for calling into HBRT as
  * provided by it. It will be used by the assembly thunk
@@ -441,6 +445,90 @@ static int prd_init(struct opal_prd_ctx *ctx)
 	return 0;
 }
 
+static int handle_msg_attn(struct opal_prd_ctx *ctx, struct opal_prd_msg *msg)
+{
+	uint64_t proc, ipoll_mask, ipoll_status;
+	int rc;
+
+	proc = be64toh(msg->attn.proc);
+	ipoll_status = be64toh(msg->attn.ipoll_status);
+	ipoll_mask = be64toh(msg->attn.ipoll_mask);
+
+	rc = call_handle_attns(proc, ipoll_status, ipoll_mask);
+	if (rc) {
+		fprintf(stderr, "enable_attns(%lx,%lx,%lx) failed, rc %d",
+				proc, ipoll_status, ipoll_mask, rc);
+		return -1;
+	}
+
+	/* send the response */
+	msg->type = OPAL_PRD_MSG_TYPE_ATTN_ACK;
+	msg->attn_ack.proc = htobe64(proc);
+	msg->attn_ack.ipoll_ack = htobe64(ipoll_status);
+	rc = write(ctx->fd, &msg, sizeof(msg));
+
+	if (rc != sizeof(msg)) {
+		warn("write(ATTN_ACK) failed");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int run_attn_loop(struct opal_prd_ctx *ctx)
+{
+	struct opal_prd_msg msg;
+	int rc;
+
+	if (!hservice_runtime->handle_attns) {
+		printf("no handle_attns call, aborting\n");
+		return -1;
+	}
+
+	if (hservice_runtime->enable_attns) {
+		pr_debug(ctx, "calling enable_attns()\n");
+		rc = call_enable_attns();
+		if (rc) {
+			fprintf(stderr, "enable_attns() failed, aborting\n");
+			return -1;
+		}
+	}
+
+	/* send init message, to unmask interrupts */
+	msg.type = OPAL_PRD_MSG_TYPE_INIT;
+	msg.init.version = htobe64(opal_prd_version);
+	msg.init.ipoll = htobe64(opal_prd_ipoll);
+
+	pr_debug(ctx, "writing init message\n");
+	rc = write(ctx->fd, &msg, sizeof(msg));
+	if (rc != sizeof(msg)) {
+		warn("init message failed, aborting");
+		return -1;
+	}
+
+	for (;;) {
+		rc = read(ctx->fd, &msg, sizeof(msg));
+		if (rc == EAGAIN)
+			continue;
+
+		if (rc != sizeof(msg)) {
+			warn("read on opal prd device failed");
+			return -1;
+		}
+
+		switch (msg.type) {
+		case OPAL_PRD_MSG_TYPE_ATTN:
+			rc = handle_msg_attn(ctx, &msg);
+		default:
+			warn("Invalid incoming message type 0x%x\n", msg.type);
+			return -1;
+		}
+
+	}
+
+	return 0;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -503,11 +591,6 @@ int main(int argc, char *argv[])
 	hservices_init(ctx->code_addr);
 	pr_debug(ctx, "hservices_init done\n");
 
-	if (!hservice_runtime->handle_attns) {
-		printf("no handle_attns call, aborting\n");
-		return EXIT_FAILURE;
-	}
-
 	/* Test a scom */
 	if (ctx->debug) {
 		printf("trying scom read\n");
@@ -516,12 +599,7 @@ int main(int argc, char *argv[])
 		printf("f00f: %lx\n", val);
 	}
 
-	pr_debug(ctx, "calling hservice_runtime->handle_attns()\n");
-	if (hservice_runtime->handle_attns) {
-		rc = call_handle_attns(0x00, 0, 0);
-	} else {
-		printf("ERROR: 	hservice_runtime->handle_attns() not found\n");
-	}
+	run_attn_loop(ctx);
 
 	close(ctx->fd);
 
