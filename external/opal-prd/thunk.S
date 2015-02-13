@@ -32,10 +32,15 @@ call_be:
 	std %r2,40(%r1)
 
 	/* Grab the target r2 and function pointer */
-	/* FIXME: Move into #if LE */
+#if __BYTE_ORDER == __LITTLE_ENDIAN
 	ldbrx %r0, 0, %r11
 	li %r2, 8
 	ldbrx %r2, %r2, %r11
+#else
+	ld %r0,0(%r11)
+	ld %r2,8(%r11)
+#endif
+
 	mtctr %r0
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
