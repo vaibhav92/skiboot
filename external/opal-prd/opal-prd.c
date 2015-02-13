@@ -286,12 +286,12 @@ int hservice_memory_error(uint64_t i_start_addr, uint64_t i_endAddr,
 	return -1;
 }
 
-void hservices_init(void *code)
+void hservices_init(struct opal_prd_ctx *ctx, void *code)
 {
 	uint64_t *s, *d;
 	int i, sz;
 
-	printf("code Address : [%p]\n", code);
+	pr_debug(ctx, "Code Address : [%p]\n", code);
 
 	/* We enter at 0x100 into the image. */
 	/* Load func desc in BE since we reverse it in thunk */
@@ -305,9 +305,9 @@ void hservices_init(void *code)
 		exit(-1);
 	}
 
-	printf("HBRT: calling ibm,hbrt_init() %p\n", hservice_runtime);
+	pr_debug(ctx, "HBRT: calling ibm,hbrt_init() %p\n", hservice_runtime);
 	hservice_runtime = call_hbrt_init(&hinterface);
-	printf("HBRT: hbrt_init passed..... %p version %016lx\n",
+	pr_debug(ctx, "HBRT: hbrt_init passed..... %p version %016lx\n",
 			hservice_runtime, hservice_runtime->interface_version);
 
 	sz = sizeof(struct runtime_interfaces)/sizeof(uint64_t);
@@ -316,7 +316,7 @@ void hservices_init(void *code)
 	/* Byte swap the function pointers */
 	for (i = 0; i < sz; i++) {
 		d[i] = be64toh(s[i]);
-		printf(" 	hservice_runtime_fixed[%d] = %016lx\n",
+		pr_debug(ctx, " 	hservice_runtime_fixed[%d] = %016lx\n",
 				i, d[i]);
 	}
 
@@ -589,7 +589,7 @@ int main(int argc, char *argv[])
 	fixup_hinterface_table();
 
 	pr_debug(ctx, "calling hservices_init\n");
-	hservices_init(ctx->code_addr);
+	hservices_init(ctx, ctx->code_addr);
 	pr_debug(ctx, "hservices_init done\n");
 
 	/* Test a scom */
