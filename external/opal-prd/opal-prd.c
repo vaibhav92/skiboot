@@ -138,11 +138,11 @@ int hservice_scom_read(uint64_t chip_id, uint64_t addr, void *buf)
 		perror("ioctl scom_read");
 		return 0;
 	}
-	/* Copy byte by byte to avoid endian flip */
-	memcpy(buf, &scom.data, sizeof(uint64_t));
 
 	printf("scom read: chip %lx addr %lx val %lx\n",
 			chip_id, addr, scom.data);
+
+	*(uint64_t *)buf = htobe64(scom.data);
 
 	return 0;
 }
@@ -155,8 +155,7 @@ int hservice_scom_write(uint64_t chip_id, uint64_t addr,
 
 	scom.chip = chip_id;
 	scom.addr = addr;
-	/* Copy byte by byte to avoid endian flip */
-	memcpy(&scom.data, buf, sizeof(uint64_t));
+	scom.data = be64toh(*(uint64_t *)buf);
 
 	rc = ioctl(ctx->fd, OPAL_PRD_SCOM_WRITE, &scom);
 	if (rc) {
