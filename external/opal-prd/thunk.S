@@ -18,6 +18,8 @@ call_be:
 	 * need save/restore and adjust r2. At this point r11
 	 * contain the OPD
 	 */
+	nop
+	nop
 
 	/* We first create a stack frame compatible with BE, we
 	 * do a big one just in case... we save LR into our caller's
