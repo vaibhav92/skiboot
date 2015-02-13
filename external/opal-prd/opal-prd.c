@@ -384,6 +384,28 @@ static int map_hbrt_physmem(struct opal_prd_ctx *ctx, const char *name)
 	return 0;
 }
 
+static void dump_hbrt_map(struct opal_prd_ctx *ctx)
+{
+	const char *dump_name = "hbrt.bin";
+	int fd, rc;
+
+	if (!ctx->debug)
+		return;
+
+	fd = open(dump_name, O_WRONLY | O_CREAT, 0644);
+	if (fd < 0)
+		err(EXIT_FAILURE, "couldn't open %s for writing", dump_name);
+
+	ftruncate(fd, 0);
+	rc = write(fd, ctx->code_addr, ctx->code_size);
+	close(fd);
+
+	if (rc != ctx->code_size)
+		warn("write to %s failed", dump_name);
+	else
+		printf("dumped HBRT binary to %s\n", dump_name);
+}
+
 static int prd_init(struct opal_prd_ctx *ctx)
 {
 	int rc;
@@ -458,6 +480,7 @@ int main(int argc, char *argv[])
 		rc = map_hbrt_physmem(ctx, hbrt_code_region_name);
 		if (rc)
 			err(EXIT_FAILURE, "can't access hbrt physical memory");
+		dump_hbrt_map(ctx);
 	}
 
 	if (ctx->debug)
