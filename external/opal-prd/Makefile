@@ -1,6 +1,6 @@
 CC = $(CROSS_COMPILE)gcc
 
-CFLAGS = -O0 -Werror -Wall -g2
+CFLAGS = -O0 -Werror -Wall -ggdb
 CPPFLAGS = -I.
 
 ifdef KERNEL_DIR
