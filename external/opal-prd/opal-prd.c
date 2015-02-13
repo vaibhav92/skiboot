@@ -429,8 +429,6 @@ static int prd_init(struct opal_prd_ctx *ctx)
 }
 
 
-
-
 int main(int argc, char *argv[])
 {
 	char *hbrt_filename = NULL;
@@ -500,29 +498,20 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	//printf("calling hservice_runtime->loadOCC()\n");
-	//rc = hservice_runtime->loadOCC(0, 0,0,0,0);
+	/* Test a scom */
+	if (ctx->debug) {
+		printf("trying scom read\n");
+		fflush(stdout);
+		hservice_scom_read(0x00, 0xf000f, &val);
+		printf("f00f: %lx\n", val);
+	}
 
-	/* Chip IDs 0x00, 0x01, 0x10, 0x11 */
 	printf("calling hservice_runtime->handle_attns()\n");
 	if (hservice_runtime->handle_attns) {
 		rc = call_handle_attns(0x00, 0, 0);
 	} else {
 		printf("ERROR: 	hservice_runtime->handle_attns() not found\n");
 	}
-
-	/* Test more SCOMS */
-
-	hservice_scom_read(0x00, 0x1502000d, &val);
-	/* Convert to LE before using val */
-	val &= ~0x8000000000000000ULL;
-	hservice_scom_write(0x00, 0x1502000d, &val);
-	hservice_scom_read(0x00, 0x1502000d, &val);
-	val |= 0x8000000000000000ULL;
-	hservice_scom_write(0x00, 0x1502000d, &val);
-	hservice_scom_read(0x00, 0x1502000d, &val);
-
-	/* FIXME: Track and unmap */
 
 	close(ctx->fd);
 
