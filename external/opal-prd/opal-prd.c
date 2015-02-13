@@ -33,6 +33,7 @@ struct opal_prd_ctx {
 	long			page_size;
 	void			*code_addr;
 	size_t			code_size;
+	bool			debug;
 };
 
 static struct opal_prd_ctx *ctx;
@@ -415,10 +416,14 @@ int main(int argc, char *argv[])
 	uint64_t val;
 	int rc;
 
+	ctx = &_ctx;
+
 	/* Parse options */
 	while(1) {
 		static struct option opal_diag_options[] = {
-			{"hostboot", required_argument, NULL, 'f'},
+			{"file", required_argument, NULL, 'f'},
+			{"debug", no_argument, NULL, 'd'},
+			{"help", no_argument, NULL, 'h'},
 		};
 		int c, idx=1;
 		c = getopt_long(argc, argv, "h", opal_diag_options, &idx);
@@ -429,14 +434,16 @@ int main(int argc, char *argv[])
 			hbrt_filename = optarg;
 			printf("Using hostboot file: %s\n", hbrt_filename);
 			break;
+		case 'd':
+			ctx->debug = true;
+			break;
 		case 'h':
-			printf("Usage: %s --hostboot <hostboot.bin file> \n",
-					argv[0]);
+			printf("Usage: %s [--file <hbrt-image>] \n", argv[0]);
 			printf("By default use image from memory\n");
+			return EXIT_SUCCESS;
 		}
 	}
 
-	ctx = &_ctx;
 	rc = prd_init(ctx);
 	if (rc)
 		err(EXIT_FAILURE, "Error initialising PRD setup");
@@ -453,12 +460,22 @@ int main(int argc, char *argv[])
 			err(EXIT_FAILURE, "can't access hbrt physical memory");
 	}
 
-	printf("hbrt map at %p, size 0x%zx\n", ctx->code_addr, ctx->code_size);
+	if (ctx->debug)
+		printf("hbrt map at %p, size 0x%zx\n",
+				ctx->code_addr, ctx->code_size);
 
 	fixup_hinterface_table();
 
-	printf("calling hservices_init\n");
+	if (ctx->debug)
+		printf("calling hservices_init\n");
 	hservices_init(ctx->code_addr);
+	if (ctx->debug)
+		printf("hservices_init done\n");
+
+	if (!hservice_runtime->handle_attns) {
+		printf("no handle_attns call, aborting\n");
+		return EXIT_FAILURE;
+	}
 
 	//printf("calling hservice_runtime->loadOCC()\n");
 	//rc = hservice_runtime->loadOCC(0, 0,0,0,0);
