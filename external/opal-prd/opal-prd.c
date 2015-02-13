@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <time.h>
 #include <err.h>
 
@@ -69,6 +70,18 @@ static struct opal_prd_range *find_range(const char *name)
 	}
 
 	return NULL;
+}
+
+static void pr_debug(struct opal_prd_ctx *ctx, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (!ctx->debug)
+		return;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
 }
 
 /* HBRT init wrappers */
@@ -216,7 +229,7 @@ void hservice_nanosleep(uint64_t i_seconds, uint64_t i_nano_seconds)
 
 int hservice_set_page_execute(void *addr)
 {
-	printf("FIXME:Calling ........hservice_set_page_execute()\n");
+	pr_debug(ctx, "FIXME: hservice_set_page_execute(%p)\n", addr);
 	return -1;
 }
 
@@ -481,17 +494,14 @@ int main(int argc, char *argv[])
 		dump_hbrt_map(ctx);
 	}
 
-	if (ctx->debug)
-		printf("hbrt map at %p, size 0x%zx\n",
-				ctx->code_addr, ctx->code_size);
+	pr_debug(ctx, "hbrt map at %p, size 0x%zx\n",
+			ctx->code_addr, ctx->code_size);
 
 	fixup_hinterface_table();
 
-	if (ctx->debug)
-		printf("calling hservices_init\n");
+	pr_debug(ctx, "calling hservices_init\n");
 	hservices_init(ctx->code_addr);
-	if (ctx->debug)
-		printf("hservices_init done\n");
+	pr_debug(ctx, "hservices_init done\n");
 
 	if (!hservice_runtime->handle_attns) {
 		printf("no handle_attns call, aborting\n");
@@ -506,7 +516,7 @@ int main(int argc, char *argv[])
 		printf("f00f: %lx\n", val);
 	}
 
-	printf("calling hservice_runtime->handle_attns()\n");
+	pr_debug(ctx, "calling hservice_runtime->handle_attns()\n");
 	if (hservice_runtime->handle_attns) {
 		rc = call_handle_attns(0x00, 0, 0);
 	} else {
