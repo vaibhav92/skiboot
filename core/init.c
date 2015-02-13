@@ -596,7 +596,7 @@ void __noreturn main_cpu_entry(const void *fdt, u32 master_cpu)
 	homer_init();
 
 	/* Initialize host services. */
-	hservices_init();
+	/* hservices_init(); */
 
 	/* Add the /opal node to the device-tree */
 	add_opal_node();
