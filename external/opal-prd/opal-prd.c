@@ -30,6 +30,9 @@
 
 #include "hostboot-interface.h"
 
+#include <libflash/libffs.h>
+#include <pnor.h>
+
 struct opal_prd_ctx {
 	int			fd;
 	struct opal_prd_info	info;
@@ -37,6 +40,8 @@ struct opal_prd_ctx {
 	void			*code_addr;
 	size_t			code_size;
 	bool			debug;
+	struct ffs_handle	*ffsh;
+	char 			*pnor_file_name;
 };
 
 static struct opal_prd_ctx *ctx;
@@ -245,15 +250,19 @@ int hservice_clock_gettime(clockid_t i_clkId, struct timespec *o_tp)
 int hservice_pnor_read(uint32_t i_proc, const char* i_partitionName,
 		uint64_t i_offset, void* o_data, size_t i_sizeBytes)
 {
-	printf("FIXME:Calling ........hservice_pnor_read()\n");
-	return -1;
+	/* TODO: how do we handle i_proc: processor Id? */
+
+	return pnor_operation(ctx->pnor_file_name, ctx->ffsh, i_partitionName,
+			      i_offset, o_data, i_sizeBytes, PNOR_OP_READ);
 }
 
 int hservice_pnor_write(uint32_t i_proc, const char* i_partitionName,
 		uint64_t i_offset, void* o_data, size_t i_sizeBytes)
 {
-	printf("FIXME:Calling ........hservice_pnor_write()\n");
-	return -1;
+	/* TODO: how do we handle i_proc: processor Id? What does it do?*/
+
+	return pnor_operation(ctx->pnor_file_name, ctx->ffsh, i_partitionName,
+			      i_offset, o_data, i_sizeBytes, PNOR_OP_WRITE);
 }
 
 int hservice_i2c_read(uint64_t i_master, uint8_t i_engine, uint8_t i_port,
@@ -559,6 +568,10 @@ int main(int argc, char *argv[])
 		case 'd':
 			ctx->debug = true;
 			break;
+		case 'p':
+			ctx->pnor_file_name = optarg;
+			printf("Using pnor file: %s\n", ctx->pnor_file_name);
+			break;
 		case 'h':
 			printf("Usage: %s [--file <hbrt-image>] \n", argv[0]);
 			printf("By default use image from memory\n");
@@ -591,6 +604,14 @@ int main(int argc, char *argv[])
 	pr_debug(ctx, "calling hservices_init\n");
 	hservices_init(ctx, ctx->code_addr);
 	pr_debug(ctx, "hservices_init done\n");
+
+	if (ctx->pnor_file_name) {
+		rc = pnor_init(ctx->pnor_file_name, &ctx->ffsh);
+		if (rc) {
+			printf("Failed to open pnor\n");
+			exit(EXIT_FAILURE);
+		}
+	}
 
 	/* Test a scom */
 	if (ctx->debug) {

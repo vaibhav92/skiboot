@@ -15,15 +15,18 @@ ifndef V
         Q_LINK=	@echo '  LINK ' $@;
 endif
 
-OBJS = opal-prd.o thunk.o
+OBJS = opal-prd.o thunk.o pnor.o libflash/libffs.o libflash/libflash.o
+
+all: opal-prd
 
 .PHONY: links
 links:
 	ln -sf ../../ccan .
+	mkdir -p libflash
+	ln -sfr ../../libflash/*.h libflash/
+	ln -sfr ../../libflash/*.c libflash/
 
 $(OBJS): links
-
-all: opal-prd
 
 %.o: %.c
 	$(Q_CC)$(COMPILE.c) $< -o $@
@@ -38,4 +41,4 @@ clean:
 	$(RM) *.[odsa] opal-prd
 
 distclean: clean
-	$(RM) -f *~
+	$(RM) -f *~ ccan libflash
