@@ -597,7 +597,7 @@ int main(int argc, char *argv[])
 		printf("trying scom read\n");
 		fflush(stdout);
 		hservice_scom_read(0x00, 0xf000f, &val);
-		printf("f00f: %lx\n", val);
+		printf("f00f: %lx\n", be64toh(val));
 	}
 
 	run_attn_loop(ctx);
