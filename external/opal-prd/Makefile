@@ -37,8 +37,14 @@ $(OBJS): links
 opal-prd: $(OBJS)
 	$(Q_LINK)$(LINK.o) -o $@ $^
 
+test: test/test_pnor
+
+test/test_pnor: test/test_pnor.o pnor.o libflash/libflash.o libflash/libffs.o
+	$(Q_LINK)$(LINK.o) -o $@ $^
+
 clean:
 	$(RM) *.[odsa] opal-prd
+	$(RM) test/*.[odsa] test/test_pnor
 
 distclean: clean
 	$(RM) -f *~ ccan libflash
