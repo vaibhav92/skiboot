@@ -131,7 +131,7 @@ int i2c_write(uint32_t chip_id, uint8_t engine, uint8_t port,
 {
 	struct i2c_rdwr_ioctl_data ioargs;
 	struct i2c_msg msg;
-	int fd, size, i;
+	int fd, size, i, rc;
 	uint8_t *buf;
 
 	if (offset_size > 4) {
@@ -169,7 +169,9 @@ int i2c_write(uint32_t chip_id, uint8_t engine, uint8_t port,
 	msg.len = size;
 	ioargs.msgs = &msg;
 	ioargs.nmsgs = 1;
-	if (ioctl(fd, I2C_RDWR, &ioargs) < 0) {
+	rc = ioctl(fd, I2C_RDWR, &ioargs);
+	free(buf);
+	if (rc < 0) {
 		fprintf(stderr, "I2C: Write error: %s\n", strerror(errno));
 		return -1;
 	}
