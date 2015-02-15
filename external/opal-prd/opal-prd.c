@@ -29,9 +29,9 @@
 #include <opal.h>
 
 #include "hostboot-interface.h"
-
-#include <libflash/libffs.h>
-#include <pnor.h>
+#include "libflash/libffs.h"
+#include "pnor.h"
+#include "i2c.h"
 
 struct opal_prd_ctx {
 	int			fd;
@@ -269,16 +269,34 @@ int hservice_i2c_read(uint64_t i_master, uint8_t i_engine, uint8_t i_port,
 		uint16_t i_devAddr, uint32_t i_offsetSize, uint32_t i_offset,
 		uint32_t i_length, void* o_data)
 {
-	printf("FIXME: %s\n", __func__);
-	return -1;
+	uint32_t chip_id;
+	uint8_t engine, port;
+
+	chip_id = (i_master & HBRT_I2C_MASTER_CHIP_MASK) >>
+		HBRT_I2C_MASTER_CHIP_SHIFT;
+	engine = (i_master & HBRT_I2C_MASTER_ENGINE_MASK) >>
+		HBRT_I2C_MASTER_ENGINE_SHIFT;
+	port = (i_master & HBRT_I2C_MASTER_PORT_MASK) >>
+		HBRT_I2C_MASTER_PORT_SHIFT;
+	return i2c_read(chip_id, engine, port, i_devAddr, i_offsetSize,
+			i_offset, i_length, o_data);
 }
 
 int hservice_i2c_write(uint64_t i_master, uint8_t i_engine, uint8_t i_port,
 		uint16_t i_devAddr, uint32_t i_offsetSize, uint32_t i_offset,
 		uint32_t i_length, void* i_data)
 {
-	printf("FIXME: %s\n", __func__);
-	return -1;
+	uint32_t chip_id;
+	uint8_t engine, port;
+
+	chip_id = (i_master & HBRT_I2C_MASTER_CHIP_MASK) >>
+		HBRT_I2C_MASTER_CHIP_SHIFT;
+	engine = (i_master & HBRT_I2C_MASTER_ENGINE_MASK) >>
+		HBRT_I2C_MASTER_ENGINE_SHIFT;
+	port = (i_master & HBRT_I2C_MASTER_PORT_MASK) >>
+		HBRT_I2C_MASTER_PORT_SHIFT;
+	return i2c_write(chip_id, engine, port, i_devAddr, i_offsetSize,
+			 i_offset, i_length, i_data);
 }
 
 int hservice_ipmi_msg(void *tx_buf, size_t tx_size,
@@ -328,7 +346,6 @@ void hservices_init(struct opal_prd_ctx *ctx, void *code)
 		pr_debug(ctx, " 	hservice_runtime_fixed[%d] = %016lx\n",
 				i, d[i]);
 	}
-
 }
 
 static void fixup_hinterface_table(void)
@@ -578,6 +595,23 @@ int main(int argc, char *argv[])
 			return EXIT_SUCCESS;
 		}
 	}
+      
+	i2c_init();
+
+#ifdef DEBUG_I2C
+	{
+		uint8_t foo[128];
+		int rc, i;
+
+		rc = i2c_read(0, 1, 2, 0x50, 2, 0x10, 128, foo);
+		printf("read rc: %d\n", rc);
+		for (i = 0; i < sizeof(foo); i += 8) {
+			printf("%02x %02x %02x %02x %02x %02x %02x %02x\n",
+			       foo[i + 0], foo[i + 1], foo[i + 2], foo[i + 3],
+			       foo[i + 4], foo[i + 5], foo[i + 6], foo[i + 7]);
+		}
+	}
+#endif
 
 	rc = prd_init(ctx);
 	if (rc)

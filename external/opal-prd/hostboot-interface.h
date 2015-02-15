@@ -189,11 +189,26 @@ struct host_interfaces {
 	int (*pnor_write) ( uint32_t i_proc, const char* i_partitionName,
 			uint64_t i_offset, void* i_data, size_t i_sizeBytes );
 
+
+	/**
+	 * i2c master description: chip, engine and port packed into
+	 * a single 64-bit argument
+	 *
+	 * ---------------------------------------------------
+	 * |         chip         |  reserved  |  eng | port |
+         * |         (32)         |    (16)    |  (8) | (8)  |
+	 * ---------------------------------------------------
+	 */
+#define HBRT_I2C_MASTER_CHIP_SHIFT	32
+#define HBRT_I2C_MASTER_CHIP_MASK	(0xfffffffful << 32)
+#define HBRT_I2C_MASTER_ENGINE_SHIFT	8
+#define HBRT_I2C_MASTER_ENGINE_MASK	(0xfful << 8)
+#define HBRT_I2C_MASTER_PORT_SHIFT	0
+#define HBRT_I2C_MASTER_PORT_MASK	(0xfful)
+
 	/**
 	 * @brief Read data from an i2c device
-	 * @param[in] i_master - Chip where i2c master resides
-	 * @param[in] i_engine - Engine number relative to i2c master
-	 * @param[in] i_port - I2C port relative to the engine
+	 * @param[in] i_master - Chip/engine/port of i2c bus
 	 * @param[in] i_devAddr - I2C address of device
 	 * @param[in] i_offsetSize - Length of offset (in bytes)
 	 * @param[in] i_offset - Offset within device to read
@@ -202,15 +217,13 @@ struct host_interfaces {
 	 * @return 0 on success else return code
 	 * @platform OpenPOWER
 	 */
-	int (*i2c_read)( uint64_t i_master, uint8_t i_engine, uint8_t i_port,
-			uint16_t i_devAddr, uint32_t i_offsetSize,
-			uint32_t i_offset, uint32_t i_length, void* o_data );
+	int (*i2c_read)( uint64_t i_master, uint16_t i_devAddr,
+			 uint32_t i_offsetSize, uint32_t i_offset,
+			 uint32_t i_length, void* o_data );
 
 	/**
 	 * @brief Write data to an i2c device
-	 * @param[in] i_master - Chip where i2c master resides
-	 * @param[in] i_engine - Engine number relative to i2c master
-	 * @param[in] i_port - I2C port relative to the engine
+	 * @param[in] i_master - Chip/engine/port of i2c bus
 	 * @param[in] i_devAddr - I2C address of device
 	 * @param[in] i_offsetSize - Length of offset (in bytes)
 	 * @param[in] i_offset - Offset within device to write
@@ -219,9 +232,9 @@ struct host_interfaces {
 	 * @return 0 on success else return code
 	 * @platform OpenPOWER
 	 */
-	int (*i2c_write)( uint64_t i_master, uint8_t i_engine, uint8_t i_port,
-			uint16_t i_devAddr, uint32_t i_offsetSize,
-			uint32_t i_offset, uint32_t i_length, void* i_data );
+	int (*i2c_write)( uint64_t i_master, uint16_t i_devAddr,
+			  uint32_t i_offsetSize, uint32_t i_offset,
+			  uint32_t i_length, void* i_data );
 
 	/**
 	 * Perform an IPMI transaction

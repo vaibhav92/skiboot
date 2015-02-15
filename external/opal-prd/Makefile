@@ -5,10 +5,6 @@ LDFLAGS = -m64
 ASFLAGS = -m64
 CPPFLAGS = -I. -I../../include
 
-ifdef KERNEL_DIR
-CPPFLAGS += -I$(KERNEL_DIR)/arch/powerpc/include
-endif
-
 # Use make V=1 for a verbose build.
 ifndef V
         Q_CC=	@echo '    CC ' $@;
@@ -16,16 +12,19 @@ ifndef V
         Q_LN=   @echo '    LN ' $@;
 endif
 
-OBJS = opal-prd.o thunk.o pnor.o libflash/libffs.o libflash/libflash.o
+OBJS = opal-prd.o thunk.o pnor.o i2c.o libflash/libffs.o libflash/libflash.o
 
 all: opal-prd
 
 .PHONY: links
 links:
-	mkdir -p libflash
+	mkdir -p libflash asm
 	$(Q_LN)ln -sfr ../../libflash/*.h libflash/
 	$(Q_LN)ln -sfr ../../libflash/*.c libflash/
-	$(Q_LN)ln -sf ../../ccan .
+	$(Q_LN)ln -sfr ../../ccan .
+ifdef KERNEL_DIR
+	$(Q_LN)ln -sfr $(KERNEL_DIR)/arch/powerpc/include/uapi/asm/opal-prd.h asm/
+endif
 
 $(OBJS): links
 
@@ -49,4 +48,4 @@ clean:
 
 distclean: clean
 	$(RM) -f *~ ccan
-	$(RM) -rf libflash
+	$(RM) -rf libflash asm
