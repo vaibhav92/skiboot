@@ -20,6 +20,7 @@
 #include <lpc.h>
 #include <console.h>
 #include <opal.h>
+#include <psi.h>
 
 static void qemu_init(void)
 {
@@ -45,6 +46,7 @@ static void qemu_dt_fixup_uart(struct dt_node *lpc)
 	char namebuf[32];
 #define UART_IO_BASE	0x3f8
 #define UART_IO_COUNT	8
+#define UART_LPC_IRQ	4
 
 	snprintf(namebuf, sizeof(namebuf), "serial@i%x", UART_IO_BASE);
 	uart = dt_new(lpc, namebuf);
@@ -57,6 +59,8 @@ static void qemu_dt_fixup_uart(struct dt_node *lpc)
 				"pnpPNP,501");
 	dt_add_property_cells(uart, "clock-frequency", 1843200);
 	dt_add_property_cells(uart, "current-speed", 115200);
+	dt_add_property_cells(uart, "interrupts", UART_LPC_IRQ);
+	dt_add_property_cells(uart, "interrupt-parent", lpc->phandle);
 
 	/*
 	 * This is needed by Linux for some obscure reasons,
@@ -64,15 +68,6 @@ static void qemu_dt_fixup_uart(struct dt_node *lpc)
 	 * let's make sure it's there
 	 */
 	dt_add_property_strings(uart, "device_type", "serial");
-
-	/*
-	 * Add interrupt. This simulates coming from HostBoot which
-	 * does not know our interrupt numbering scheme. Instead, it
-	 * just tells us which chip the interrupt is wired to, it will
-	 * be the PSI "host error" interrupt of that chip. For now we
-	 * assume the same chip as the LPC bus is on.
-	 */
-	dt_add_property_cells(uart, "ibm,irq-chip-id", dt_get_chip_id(lpc));
 }
 
 /*
@@ -115,6 +110,11 @@ static void qemu_dt_fixup(void)
 	qemu_dt_fixup_uart(primary_lpc);
 }
 
+static void qemu_ext_irq_serirq_cpld(unsigned int chip_id)
+{
+	lpc_all_interrupts(chip_id);
+}
+
 static bool qemu_probe(void)
 {
 	if (!dt_node_is_compatible(dt_root, "qemu,powernv"))
@@ -123,12 +123,14 @@ static bool qemu_probe(void)
 	/* Add missing bits of device-tree such as the UART */
 	qemu_dt_fixup();
 
+	psi_set_external_irq_policy(EXTERNAL_IRQ_POLICY_SKIBOOT);
+
 	/*
 	 * Setup UART and use it as console. For now, we
 	 * don't expose the interrupt as we know it's not
 	 * working properly yet
 	 */
-	uart_init(false);
+	uart_init(true);
 
 	return true;
 }
@@ -137,4 +139,5 @@ DECLARE_PLATFORM(qemu) = {
 	.name		= "Qemu",
 	.probe		= qemu_probe,
 	.init		= qemu_init,
+	.external_irq   = qemu_ext_irq_serirq_cpld,
 };
