@@ -110,6 +110,19 @@ void fake_rtc_init(void)
 	struct mem_region *rtc_region = NULL;
 	uint32_t *rtc = NULL;
 	struct dt_node *np;
+	struct dt_property * dtp_rtcinit;
+
+	
+	dtp_rtcinit = __dt_find_property(dt_root, "rtc-initial-value");
+
+	if (dtp_rtcinit == NULL) {
+		printf("RTC: initial value not found\n");
+	} else {
+		printf("RTC: initial value  found %s\n", dtp_rtcinit->prop);
+	}
+	  
+
+
 
 	/* Read initial values from reserved memory */
 	rtc_region = find_mem_region("ibm,fake-rtc");
