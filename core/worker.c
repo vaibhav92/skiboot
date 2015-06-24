@@ -105,7 +105,8 @@ void start_work(struct worker *w)
 		resume_work(w);
 }
 
-static void work_timer_func(struct timer *t __unused, void *data)
+static void work_timer_func(struct timer *t __unused, void *data,
+			    uint64_t now __unused)
 {
 	struct worker *w = data;
 
