@@ -39,8 +39,11 @@
 #define   BT_INTMASK_B2H_IRQ		0x02
 #define   BT_INTMASK_BMC_HWRST		0x80
 
-/* Default poll interval before interrupts are working */
-#define BT_DEFAULT_POLL_MS	200
+/* Poll interval before interrupts are working */
+#define BT_NOIRQ_POLL_MS	200
+
+/* Poll interval when interrupts are working (for timeouts) */
+#define BT_IRQ_POLL_MS		2000
 
 /*
  * Minimum size of an IPMI request/response including
@@ -52,8 +55,6 @@
 /*
  * How long (in uS) to poll for new ipmi data.
  */
-#define POLL_TIMEOUT 10000
-
 /*
  * Maximum number of outstanding messages to allow in the queue.
  */
@@ -392,7 +393,9 @@ static void bt_poll(struct timer *t __unused, void *data __unused,
 	bt_send_and_unlock();
 
 	schedule_timer(&bt.poller,
-		       bt.irq_ok ? TIMER_POLL : msecs_to_tb(BT_DEFAULT_POLL_MS));
+		       bt.irq_ok ?
+		       msecs_to_tb(BT_IRQ_POLL_MS) :
+		       msecs_to_tb(BT_NOIRQ_POLL_MS));
 }
 
 static void bt_add_msg(struct bt_msg *bt_msg)
@@ -550,7 +553,7 @@ void bt_init(void)
 	 * least until we have at least one interrupt occurring at which
 	 * point we turn it into a background poller
 	 */
-	schedule_timer(&bt.poller, msecs_to_tb(BT_DEFAULT_POLL_MS));
+	schedule_timer(&bt.poller, msecs_to_tb(BT_NOIRQ_POLL_MS));
 
 	irq = dt_prop_get_u32(n, "interrupts");
 	bt_lpc_client.interrupts = LPC_IRQ(irq);
