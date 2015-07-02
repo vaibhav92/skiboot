@@ -12,6 +12,12 @@
 #include <cpu.h>
 #endif
 
+//#define DBG(fmt...) prlog(PR_INFO, "TIMER:" fmt)
+#define DBG(fmt...) do { } while(0)
+
+/* Heartbeat requested from Linux */
+#define HEARTBEAT_DEFAULT_MS	2000
+
 static struct lock timer_lock = LOCK_UNLOCKED;
 static LIST_HEAD(timer_list);
 static LIST_HEAD(timer_poll_list);
@@ -72,28 +78,47 @@ void cancel_timer_async(struct timer *t)
 	unlock(&timer_lock);
 }
 
-void schedule_timer_at(struct timer *t, uint64_t when)
+static void __schedule_timer_at(struct timer *t, uint64_t when)
 {
 	struct timer *lt;
 
-	lock(&timer_lock);
-	if (t->link.next)
+	DBG("Scheduling timer %p at %llx\n", t, when);
+
+	if (t->link.next) {
+		DBG("  - removing first\n");
 		__remove_timer(t);
+	}
 	t->target = when;
 	if (when == TIMER_POLL) {
 		t->gen = timer_poll_gen;
 		list_add_tail(&timer_poll_list, &t->link);
+		DBG("  - added to poll list\n");
 	} else {
+		DBG("  - scanning timer list...\n");
 		list_for_each(&timer_list, lt, link) {
+			DBG("     found %p at %llx\n", lt, lt->target);
 			if (when < lt->target) {
+				DBG("     ! adding before !\n");
 				list_add_before(&timer_list, &t->link,
 						&lt->link);
-				unlock(&timer_lock);
-				return;
+				goto bail;
 			}
 		}
 		list_add_tail(&timer_list, &t->link);
+		DBG("     ! added to tail !\n");
 	}
+ bail:
+	lt = list_top(&timer_list, struct timer, link);
+	if (lt) {
+		DBG("  - updating slw to %llx\n", lt->target);
+		slw_update_timer_expiry(lt->target);
+	}
+}
+
+void schedule_timer_at(struct timer *t, uint64_t when)
+{
+	lock(&timer_lock);
+	__schedule_timer_at(t, when);
 	unlock(&timer_lock);
 }
 
@@ -173,13 +198,17 @@ static void __check_timers(uint64_t now)
 		if (!t || t->target > now)
 			break;
 
+		DBG("Timer %p expired at %llx (now=%llx)\n", t, t->target, now);
+
 		/* Top of list still running, we have to delay handling
 		 * it. For now just skip until the next poll, when we have
 		 * SLW interrupts, we'll probably want to trip another one
 		 * ASAP
 		 */
-		if (t->running)
+		if (t->running) {
+			DBG("     ! already running !\n");
 			break;
+		}
 
 		/* Allright, first remove it and mark it running */
 		__remove_timer(t);
@@ -222,24 +251,25 @@ void check_timers(bool from_interrupt)
 }
 
 #ifndef __TEST__
+
 void late_init_timers(void)
 {
 	/* Add a property requesting the OS to call opal_poll_event() at
 	 * a specified interval in order for us to run our background
-	 * low priority poller.
-	 *
-	 * When we have a working SLW based HW timer, we'll be able to
-	 * reduce this or even remove it, for now however, we want to be
-	 * called at least every couple of seconds on FSP based machines
-	 * and a bit faster on BMC based machines where the LPC and i2c
-	 * interrupts might not be functional.
+	 * low priority poller if we don't have an SLW timer facility.
 	 *
 	 * We use a value in milliseconds, we don't want this to ever be
 	 * faster than that.
+	 *
+	 * If the SLW timer is available, we instead use a timer to do
+	 * the 2s poll.
 	 */
-	if (fsp_present())
-		dt_add_property_cells(opal_node, "ibm,heartbeat-ms", 2000);
-	else
-		dt_add_property_cells(opal_node, "ibm,heartbeat-ms", 250);
+	if (slw_timer_ok() || fsp_present()) {
+		dt_add_property_cells(opal_node, "ibm,heartbeat-ms",
+				      HEARTBEAT_DEFAULT_MS);
+	} else {
+		dt_add_property_cells(opal_node, "ibm,heartbeat-ms",
+				      HEARTBEAT_DEFAULT_MS / 10);
+	}
 }
 #endif

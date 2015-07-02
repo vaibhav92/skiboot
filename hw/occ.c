@@ -24,6 +24,7 @@
 #include <timebase.h>
 #include <hostservices.h>
 #include <errorlog.h>
+#include <timer.h>
 
 /* OCC Communication Area for PStates */
 
@@ -619,9 +620,11 @@ static struct fsp_client fsp_occ_client = {
 #define OCB_OCI_OCCMISC_OR	0x6a022
 #define OCB_OCI_OCIMISC_IRQ		PPC_BIT(0)
 #define OCB_OCI_OCIMISC_IRQ_TMGT	PPC_BIT(1)
+#define OCB_OCI_OCIMISC_IRQ_SLW_TMR	PPC_BIT(14)
 #define OCB_OCI_OCIMISC_IRQ_OPAL_DUMMY	PPC_BIT(15)
 #define OCB_OCI_OCIMISC_MASK		(OCB_OCI_OCIMISC_IRQ_TMGT | \
-					 OCB_OCI_OCIMISC_IRQ_OPAL_DUMMY )
+					 OCB_OCI_OCIMISC_IRQ_OPAL_DUMMY | \
+					 OCB_OCI_OCIMISC_IRQ_SLW_TMR)
 
 void occ_send_dummy_interrupt(void)
 {
@@ -669,6 +672,8 @@ void occ_interrupt(uint32_t chip_id)
 	/* Dispatch */
 	if (ireg & OCB_OCI_OCIMISC_IRQ_TMGT)
 		prd_tmgt_interrupt(chip_id);
+	if (ireg & OCB_OCI_OCIMISC_IRQ_SLW_TMR)
+		check_timers(true);
 
 	/* We may have masked-out OCB_OCI_OCIMISC_IRQ in the previous
 	 * OCCMISC_AND write. Check if there are any new source bits set,
