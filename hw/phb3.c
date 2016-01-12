@@ -3277,6 +3277,20 @@ static int64_t phb3_get_diag_data(struct phb *phb,
 	return OPAL_SUCCESS;
 }
 
+static void phb3_reset_capp_regs(struct phb3 *p)
+{
+	uint64_t reg;
+
+	xscom_read(p->chip_id, APC_MASTER_PB_CTRL, &reg);
+	reg &= ~PPC_BIT(3);
+	xscom_write(p->chip_id, APC_MASTER_PB_CTRL, reg);
+
+
+	xscom_write(p->chip_id, APC_MASTER_CAPI_CTRL,0);
+	PHBINF(p, "CAPP: port deattached\n");
+
+}
+
 static void phb3_init_capp_regs(struct phb3 *p)
 {
 	uint64_t reg;
@@ -3373,9 +3387,6 @@ static int64_t phb3_set_capi_mode(struct phb *phb, uint64_t mode,
 		return OPAL_BUSY;
 	}
 
-	if (mode == OPAL_PHB_CAPI_MODE_PCIE)
-		return OPAL_UNSUPPORTED;
-
 	if (mode == OPAL_PHB_CAPI_MODE_SNOOP_OFF) {
 		xscom_write(p->chip_id, SNOOP_CAPI_CONFIG, 	0x0000000000000000);
 		return OPAL_SUCCESS;
@@ -3387,8 +3398,6 @@ static int64_t phb3_set_capi_mode(struct phb *phb, uint64_t mode,
 		return OPAL_SUCCESS;
 	}
 
-	if (mode != OPAL_PHB_CAPI_MODE_CAPI)
-		return OPAL_UNSUPPORTED;
 
 	xscom_read(p->chip_id, 0x9013c03, &reg);
 	if (reg & PPC_BIT(0)) {
@@ -3407,6 +3416,17 @@ static int64_t phb3_set_capi_mode(struct phb *phb, uint64_t mode,
 		return OPAL_HARDWARE;
 	}
 
+
+	if (mode == OPAL_PHB_CAPI_MODE_PCIE) {
+		PHBDBG(p, "CAPP: Reseting\n");
+		phb3_reset_capp_regs(p);
+		xscom_write(p->chip_id, 0x9013c03, 0);
+		return OPAL_SUCCESS;
+	}
+
+	if (mode != OPAL_PHB_CAPI_MODE_CAPI)
+		return OPAL_UNSUPPORTED;
+ 
 	xscom_write(p->chip_id, p->spci_xscom + 0x3, 0x8000000000000000ull);
 	/* FIXME security timer bar
 	xscom_write(p->chip_id, p->spci_xscom + 0x4, 0x8000000000000000ull);
