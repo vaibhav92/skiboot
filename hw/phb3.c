@@ -1185,7 +1185,7 @@ static int64_t phb3_pci_msi_eoi(struct phb *phb,
 	struct phb3 *p = phb_to_phb3(phb);
 	uint32_t ive_num = PHB3_IRQ_NUM(hwirq);
 	uint64_t ive, ivc;
-	uint8_t *p_byte, gp, gen;
+	uint8_t *p_byte, gp, gen, newgen;
 
 	/* OS might not configure IVT yet */
 	if (!p->tbl_ivt)
@@ -1198,15 +1198,19 @@ static int64_t phb3_pci_msi_eoi(struct phb *phb,
 	/* Read generation and P */
 	gp = *p_byte;
 	gen = gp >> 1;
+	newgen = (gen + 1) & 3;
 
 	/* Increment generation count and clear P */
-	*p_byte = ((gen + 1) << 1) & 0x7;
+	*p_byte = newgen << 1;
 
-	/* Update the IVC with a match against the old gen count */
+	/* Update the IVC.
+	   Clear P and update gen to newgen cached gen is old gen */
 	ivc = SETFIELD(PHB_IVC_UPDATE_SID, 0ul, ive_num) |
 		PHB_IVC_UPDATE_ENABLE_P |
 		PHB_IVC_UPDATE_ENABLE_GEN |
-		SETFIELD(PHB_IVC_UPDATE_GEN_MATCH, 0ul, gen);
+		PHB_IVC_UPDATE_ENABLE_CON |
+		SETFIELD(PHB_IVC_UPDATE_GEN_MATCH, 0ul, gen) |
+		SETFIELD(PHB_IVC_UPDATE_GEN, 0ul, newgen);
 	out_be64(p->regs + PHB_IVC_UPDATE, ivc);
 
 	/* Handle Q bit */
