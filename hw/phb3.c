@@ -1751,6 +1751,8 @@ static int64_t phb3_msi_set_xive(void *data,
 			PHB_IVC_UPDATE_ENABLE_Q |
 			PHB_IVC_UPDATE_ENABLE_GEN;
 		out_be64(p->regs + PHB_IVC_UPDATE, ivc);
+		/* wait for 5ms before signalling the interrupt is masked */
+		time_wait_ms(5);
 	}
 
 	return OPAL_SUCCESS;
