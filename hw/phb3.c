@@ -1678,8 +1678,9 @@ static int64_t phb3_msi_set_xive(void *data,
 {
 	struct phb3 *p = data;
 	uint32_t chip, index;
-	uint64_t *cache, ive_num, data64, m_server, m_prio, ivc;
-	uint32_t *ive;
+	uint64_t *cache, ive_num, data64, m_server, m_prio;
+	uint64_t *ive,ive_val;
+	uint8_t old_prio;
 
 	chip = p8_irq_to_chip(isn);
 	index = p8_irq_to_phb(isn);
@@ -1710,20 +1711,32 @@ static int64_t phb3_msi_set_xive(void *data,
 	 * Update IVT and IVC. We need use IVC update register
 	 * to do that. Each IVE in the table has 128 bytes
 	 */
-	ive = (uint32_t *)(p->tbl_ivt + ive_num * IVT_TABLE_STRIDE * 8);
+	ive = (uint64_t *)(p->tbl_ivt + ive_num * IVT_TABLE_STRIDE * 8);
 	data64 = PHB_IVC_UPDATE_ENABLE_SERVER | PHB_IVC_UPDATE_ENABLE_PRI;
 	data64 = SETFIELD(PHB_IVC_UPDATE_SID, data64, ive_num);
 	data64 = SETFIELD(PHB_IVC_UPDATE_SERVER, data64, m_server);
 	data64 = SETFIELD(PHB_IVC_UPDATE_PRI, data64, m_prio);
 
-	/*
-	 * We don't use SETFIELD because we are doing a 32-bit access
-	 * in order to avoid touching the P and Q bits
-	 */
-	*ive = (m_server << 8) | m_prio;
-	out_be64(p->regs + PHB_IVC_UPDATE, data64);
+	/* Read from random PHB reg to force flush */
+	in_be64(p->regs + PHB_IVC_UPDATE);
 
-	if (prio != 0xff) {
+	/* Order with subsequent read of Q */
+	sync();
+
+	ive_val = *ive;
+	
+	/* read the old priority */
+	old_prio = GETFIELD(IODA2_IVT_PRIORITY,ive_val);
+
+	/* changing the priority of an existing unmasked irq */
+	ive_val = SETFIELD(IODA2_IVT_SERVER, ive_val, m_server);
+	ive_val = SETFIELD(IODA2_IVT_PRIORITY, ive_val, m_prio);
+
+	if (prio != 0xff && old_prio != 0xff) {
+		
+		*ive = ive_val;
+		phb3_pci_msi_flush_ive(p, ive_num);
+		out_be64(p->regs + PHB_IVC_UPDATE, data64);
 		/*
 		 * Handle Q bit if we're going to enable the
 		 * interrupt.  The OS should make sure the interrupt
@@ -1731,26 +1744,42 @@ static int64_t phb3_msi_set_xive(void *data,
 		 */
 		if (phb3_pci_msi_check_q(p, ive_num))
 			phb3_pci_msi_flush_ive(p, ive_num);
+	
+	} else 	if (old_prio == 0xff && prio != 0xff) {
+		/* moving from masked to unmasked reset the P, Q and Generation bits */
+		ive_val = SETFIELD(IODA2_IVT_P, ive_val, 0);
+		ive_val = SETFIELD(IODA2_IVT_Q, ive_val, 0);
+		ive_val = SETFIELD(IODA2_IVT_GEN, ive_val, 0);
+
+
+		*ive = ive_val;
+
+		data64 |= PHB_IVC_UPDATE_ENABLE_P |
+			PHB_IVC_UPDATE_ENABLE_Q |
+			PHB_IVC_UPDATE_ENABLE_GEN;
+		out_be64(p->regs + PHB_IVC_UPDATE, data64);
 	} else {
-		/* Read from random PHB reg to force flush */
-		in_be64(p->regs + PHB_IVC_UPDATE);
-
-		/* Order with subsequent read of Q */
-		sync();
-
+		/* an unmasked interrupt getting masked */
+		
 		/* Clear P, Q and Gen, preserve PE# */
-		ive[1] &= 0x0000ffff;
+		ive_val = SETFIELD(IODA2_IVT_P, ive_val, 0);
+		ive_val = SETFIELD(IODA2_IVT_Q, ive_val, 0);
+		ive_val = SETFIELD(IODA2_IVT_GEN, ive_val, 0);
+		*ive = ive_val;
+		phb3_pci_msi_flush_ive(p, ive_num);
 
 		/*
 		 * Update the IVC with a match against the old gen
 		 * count. No need to worry about racing with P being
 		 * set in the cache since IRQ is masked at this point.
 		 */
-		ivc = SETFIELD(PHB_IVC_UPDATE_SID, 0ul, ive_num) |
+		data64 = SETFIELD(PHB_IVC_UPDATE_SID, data64, ive_num) |
 			PHB_IVC_UPDATE_ENABLE_P |
 			PHB_IVC_UPDATE_ENABLE_Q |
 			PHB_IVC_UPDATE_ENABLE_GEN;
-		out_be64(p->regs + PHB_IVC_UPDATE, ivc);
+		out_be64(p->regs + PHB_IVC_UPDATE, data64);
+		/* wait for 5ms before signalling the interrupt is masked */
+		/* time_wait_ms(5); */
 	}
 
 	return OPAL_SUCCESS;
