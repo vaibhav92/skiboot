@@ -1213,6 +1213,9 @@ static int64_t phb3_pci_msi_eoi(struct phb *phb,
 		SETFIELD(PHB_IVC_UPDATE_GEN, 0ul, newgen);
 	out_be64(p->regs + PHB_IVC_UPDATE, ivc);
 
+	/* Read from random PHB reg to force flush */
+	in_be64(p->regs + PHB_IVC_UPDATE);
+
 	/* Handle Q bit */
 	phb3_pci_msi_check_q(p, ive_num);
 
