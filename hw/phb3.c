@@ -1191,6 +1191,9 @@ static int64_t phb3_pci_msi_eoi(struct phb *phb,
 	if (!p->tbl_ivt)
 		return OPAL_HARDWARE;
 
+	/* Read from random PHB reg to force flush */
+	in_be64(p->regs + PHB_IVC_UPDATE);
+
 	/* Each IVE has 16-bytes or 128-bytes */
 	ive = p->tbl_ivt + (ive_num * IVT_TABLE_STRIDE * 8);
 	p_byte = (uint8_t *)(ive + 4);
@@ -1202,6 +1205,7 @@ static int64_t phb3_pci_msi_eoi(struct phb *phb,
 
 	/* Increment generation count and clear P */
 	*p_byte = newgen << 1;
+	phb3_pci_msi_flush_ive(p, ive_num);
 
 	/* Update the IVC.
 	   Clear P and update gen to newgen cached gen is old gen */
@@ -1213,14 +1217,117 @@ static int64_t phb3_pci_msi_eoi(struct phb *phb,
 		SETFIELD(PHB_IVC_UPDATE_GEN, 0ul, newgen);
 	out_be64(p->regs + PHB_IVC_UPDATE, ivc);
 
+
+	/* Handle Q bit */
+	if(phb3_pci_msi_check_q(p, ive_num))
+		phb3_pci_msi_flush_ive(p, ive_num);
+
+	return OPAL_SUCCESS;
+}
+
+static int64_t phb3_msi_set_xive(void *data,
+				 uint32_t isn,
+				 uint16_t server,
+				 uint8_t prio)
+{
+	struct phb3 *p = data;
+	uint32_t chip, index;
+	uint64_t *cache, ive_num, data64, m_server, m_prio;
+	uint64_t *ive,ive_val;
+	uint8_t old_prio;
+
+	chip = p8_irq_to_chip(isn);
+	index = p8_irq_to_phb(isn);
+	ive_num = PHB3_IRQ_NUM(isn);
+
+	if (p->state == PHB3_STATE_BROKEN || !p->tbl_rtt)
+		return OPAL_HARDWARE;
+	if (chip != p->chip_id ||
+	    index != p->index ||
+	    ive_num > PHB3_MSI_IRQ_MAX)
+		return OPAL_PARAMETER;
+
+	/*
+	 * We need strip the link from server. As Milton told
+	 * me, the server is assigned as follows and the left
+	 * bits unused: node/chip/core/thread/link = 2/3/4/3/2
+	 *
+	 * Note: the server has added the link bits to server.
+	 */
+	m_server = server;
+	m_prio = prio;
+
+	cache = &p->ive_cache[ive_num];
+	*cache = SETFIELD(IODA2_IVT_SERVER,   *cache, m_server);
+	*cache = SETFIELD(IODA2_IVT_PRIORITY, *cache, m_prio);
+
+	/*
+	 * Update IVT and IVC. We need use IVC update register
+	 * to do that. Each IVE in the table has 128 bytes
+	 */
+	ive = (uint64_t *)(p->tbl_ivt + ive_num * IVT_TABLE_STRIDE * 8);
+	data64 = PHB_IVC_UPDATE_ENABLE_SERVER | PHB_IVC_UPDATE_ENABLE_PRI;
+	data64 = SETFIELD(PHB_IVC_UPDATE_SID, data64, ive_num);
+	data64 = SETFIELD(PHB_IVC_UPDATE_SERVER, data64, m_server);
+	data64 = SETFIELD(PHB_IVC_UPDATE_PRI, data64, m_prio);
+
 	/* Read from random PHB reg to force flush */
 	in_be64(p->regs + PHB_IVC_UPDATE);
 
-	/* Handle Q bit */
-	phb3_pci_msi_check_q(p, ive_num);
+	/* Order with subsequent read of Q */
+	sync();
 
+	ive_val = *ive;
+	
+	/* read the old priority */
+	old_prio = GETFIELD(IODA2_IVT_PRIORITY,ive_val);
+	ive_val = SETFIELD(IODA2_IVT_SERVER, ive_val, m_server);
+	ive_val = SETFIELD(IODA2_IVT_PRIORITY, ive_val, m_prio);
+
+	if (old_prio != 0xff && prio == 0xff) {
+		/* Interrupt getting masked */
+
+		/* Clear P, Q and Gen, preserve PE# */
+		ive_val = SETFIELD(IODA2_IVT_P, ive_val, 0);
+		ive_val = SETFIELD(IODA2_IVT_Q, ive_val, 0);
+		ive_val = SETFIELD(IODA2_IVT_GEN, ive_val, 0);
+
+		/* invalidate the ivc cached entry */
+	  	data64 = SETFIELD(PHB_IVC_INVALIDATE_SID, 0ul, ive_num);
+		
+	} else if (old_prio == 0xff && prio != 0xff) {
+		/* masked interrupt getting unmaksed */
+
+		/* Reset the P and Generation bits from mem and .. */
+		ive_val = SETFIELD(IODA2_IVT_P, ive_val, 0);
+		ive_val = SETFIELD(IODA2_IVT_GEN, ive_val, 0);
+
+		/* .. ivc on phb */
+		data64 |= PHB_IVC_UPDATE_ENABLE_P |
+			PHB_IVC_UPDATE_ENABLE_GEN;
+	}
+
+	/* update the ive in system memor and flush it from cache */
+	*ive = ive_val;
 	phb3_pci_msi_flush_ive(p, ive_num);
 
+	if (old_prio != 0xff && prio == 0xff) {
+		out_be64(p->regs + PHB_IVC_INVALIDATE, data64);
+		/* wait for 5ms before signalling the interrupt is masked */
+		/* if (prio == 0xff)
+		   time_wait_ms(5); */
+
+	} else if (prio != 0xff)
+		out_be64(p->regs + PHB_IVC_UPDATE, data64);
+		/*
+		 * Handle Q bit if we're going to enable the
+		 * interrupt.  The OS should make sure the interrupt
+		 * handler has been installed already.
+		 */
+		if (phb3_pci_msi_check_q(p, ive_num))
+			phb3_pci_msi_flush_ive(p, ive_num);
+	}
+	
 	return OPAL_SUCCESS;
 }
 
@@ -1674,119 +1781,6 @@ static int64_t phb3_msi_get_xive(void *data,
 	return OPAL_SUCCESS;
 }
 
-static int64_t phb3_msi_set_xive(void *data,
-				 uint32_t isn,
-				 uint16_t server,
-				 uint8_t prio)
-{
-	struct phb3 *p = data;
-	uint32_t chip, index;
-	uint64_t *cache, ive_num, data64, m_server, m_prio;
-	uint64_t *ive,ive_val;
-	uint8_t old_prio;
-
-	chip = p8_irq_to_chip(isn);
-	index = p8_irq_to_phb(isn);
-	ive_num = PHB3_IRQ_NUM(isn);
-
-	if (p->state == PHB3_STATE_BROKEN || !p->tbl_rtt)
-		return OPAL_HARDWARE;
-	if (chip != p->chip_id ||
-	    index != p->index ||
-	    ive_num > PHB3_MSI_IRQ_MAX)
-		return OPAL_PARAMETER;
-
-	/*
-	 * We need strip the link from server. As Milton told
-	 * me, the server is assigned as follows and the left
-	 * bits unused: node/chip/core/thread/link = 2/3/4/3/2
-	 *
-	 * Note: the server has added the link bits to server.
-	 */
-	m_server = server;
-	m_prio = prio;
-
-	cache = &p->ive_cache[ive_num];
-	*cache = SETFIELD(IODA2_IVT_SERVER,   *cache, m_server);
-	*cache = SETFIELD(IODA2_IVT_PRIORITY, *cache, m_prio);
-
-	/*
-	 * Update IVT and IVC. We need use IVC update register
-	 * to do that. Each IVE in the table has 128 bytes
-	 */
-	ive = (uint64_t *)(p->tbl_ivt + ive_num * IVT_TABLE_STRIDE * 8);
-	data64 = PHB_IVC_UPDATE_ENABLE_SERVER | PHB_IVC_UPDATE_ENABLE_PRI;
-	data64 = SETFIELD(PHB_IVC_UPDATE_SID, data64, ive_num);
-	data64 = SETFIELD(PHB_IVC_UPDATE_SERVER, data64, m_server);
-	data64 = SETFIELD(PHB_IVC_UPDATE_PRI, data64, m_prio);
-
-	/* Read from random PHB reg to force flush */
-	in_be64(p->regs + PHB_IVC_UPDATE);
-
-	/* Order with subsequent read of Q */
-	sync();
-
-	ive_val = *ive;
-	
-	/* read the old priority */
-	old_prio = GETFIELD(IODA2_IVT_PRIORITY,ive_val);
-
-	/* changing the priority of an existing unmasked irq */
-	ive_val = SETFIELD(IODA2_IVT_SERVER, ive_val, m_server);
-	ive_val = SETFIELD(IODA2_IVT_PRIORITY, ive_val, m_prio);
-
-	if (prio != 0xff && old_prio != 0xff) {
-		
-		*ive = ive_val;
-		phb3_pci_msi_flush_ive(p, ive_num);
-		out_be64(p->regs + PHB_IVC_UPDATE, data64);
-		/*
-		 * Handle Q bit if we're going to enable the
-		 * interrupt.  The OS should make sure the interrupt
-		 * handler has been installed already.
-		 */
-		if (phb3_pci_msi_check_q(p, ive_num))
-			phb3_pci_msi_flush_ive(p, ive_num);
-	
-	} else 	if (old_prio == 0xff && prio != 0xff) {
-		/* moving from masked to unmasked reset the P, Q and Generation bits */
-		ive_val = SETFIELD(IODA2_IVT_P, ive_val, 0);
-		ive_val = SETFIELD(IODA2_IVT_Q, ive_val, 0);
-		ive_val = SETFIELD(IODA2_IVT_GEN, ive_val, 0);
-
-
-		*ive = ive_val;
-
-		data64 |= PHB_IVC_UPDATE_ENABLE_P |
-			PHB_IVC_UPDATE_ENABLE_Q |
-			PHB_IVC_UPDATE_ENABLE_GEN;
-		out_be64(p->regs + PHB_IVC_UPDATE, data64);
-	} else {
-		/* an unmasked interrupt getting masked */
-		
-		/* Clear P, Q and Gen, preserve PE# */
-		ive_val = SETFIELD(IODA2_IVT_P, ive_val, 0);
-		ive_val = SETFIELD(IODA2_IVT_Q, ive_val, 0);
-		ive_val = SETFIELD(IODA2_IVT_GEN, ive_val, 0);
-		*ive = ive_val;
-		phb3_pci_msi_flush_ive(p, ive_num);
-
-		/*
-		 * Update the IVC with a match against the old gen
-		 * count. No need to worry about racing with P being
-		 * set in the cache since IRQ is masked at this point.
-		 */
-		data64 = SETFIELD(PHB_IVC_UPDATE_SID, data64, ive_num) |
-			PHB_IVC_UPDATE_ENABLE_P |
-			PHB_IVC_UPDATE_ENABLE_Q |
-			PHB_IVC_UPDATE_ENABLE_GEN;
-		out_be64(p->regs + PHB_IVC_UPDATE, data64);
-		/* wait for 5ms before signalling the interrupt is masked */
-		/* time_wait_ms(5); */
-	}
-
-	return OPAL_SUCCESS;
-}
 
 static int64_t phb3_lsi_get_xive(void *data,
 				 uint32_t isn,
