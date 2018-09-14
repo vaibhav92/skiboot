@@ -4435,54 +4435,75 @@ static int64_t phb4_set_capi_mode(struct phb *phb, uint64_t mode,
 	struct proc_chip *chip = get_chip(p->chip_id);
 	struct capp *capp = phb->capp;
 	uint64_t reg, ret;
-	uint32_t offset;
 
 	if (capp == NULL)
 		return OPAL_UNSUPPORTED;
 
-	if (!capp_ucode_loaded(chip, p->index)) {
-		PHBERR(p, "CAPP: ucode not loaded\n");
-		return OPAL_RESOURCE;
-	}
-
-	/* mark the capp attached to the phb */
-	capp->phb = phb;
-	capp->attached_pe = pe_number;
-
-	offset = PHB4_CAPP_REG_OFFSET(p);
-	xscom_read(p->chip_id, CAPP_ERR_STATUS_CTRL + offset, &reg);
-	if ((reg & PPC_BIT(5))) {
-		PHBERR(p, "CAPP: recovery failed (%016llx)\n", reg);
-		return OPAL_HARDWARE;
-	} else if ((reg & PPC_BIT(0)) && (!(reg & PPC_BIT(1)))) {
-		PHBDBG(p, "CAPP: recovery in progress\n");
-		return OPAL_BUSY;
-	}
-
 	switch (mode) {
-	case OPAL_PHB_CAPI_MODE_CAPI:
-		ret = enable_capi_mode(p, pe_number,
-					CAPP_MAX_STQ_ENGINES |
-					CAPP_MIN_DMA_READ_ENGINES);
-		disable_fast_reboot("CAPP being enabled");
-		break;
-	case OPAL_PHB_CAPI_MODE_DMA_TVT1:
-		ret = enable_capi_mode(p, pe_number,
-					CAPP_MIN_STQ_ENGINES |
-					CAPP_MAX_DMA_READ_ENGINES);
-		disable_fast_reboot("CAPP being enabled");
-		break;
+
+	case OPAL_PHB_CAPI_MODE_DMA: /* Enabled by default on p9 */
 	case OPAL_PHB_CAPI_MODE_SNOOP_ON:
-		/* nothing to do P9 if CAPP is alreay enabled */
-		ret = OPAL_SUCCESS;
+		/* nothing to do on P9 if CAPP is alreay enabled */
+		ret = phb->capp ? OPAL_SUCCESS : OPAL_UNSUPPORTED;
 		break;
 
-	case OPAL_PHB_CAPI_MODE_PCIE: /* shouldn't be called on p9*/
-	case OPAL_PHB_CAPI_MODE_DMA: /* Enabled by default on p9 */
-	case OPAL_PHB_CAPI_MODE_SNOOP_OFF: /* shouldn't be called on p9*/
+	case OPAL_PHB_CAPI_MODE_SNOOP_OFF:
+	case OPAL_PHB_CAPI_MODE_PCIE: /* Not supported at the moment */
+		ret = phb->capp ? OPAL_UNSUPPORTED : OPAL_SUCCESS;
+		break;
+
+	case OPAL_PHB_CAPI_MODE_CAPI: /* Fall Through */
+	case OPAL_PHB_CAPI_MODE_DMA_TVT1:
+		/* Check if ucode is available */
+		if (!capp_ucode_loaded(chip, p->index)) {
+			PHBERR(p, "CAPP: ucode not loaded\n");
+			ret = OPAL_RESOURCE;
+			break;
+		}
+
+		xscom_read(p->chip_id, CAPP_ERR_STATUS_CTRL + offset, &reg);
+		if ((reg & PPC_BIT(5))) {
+			PHBERR(p, "CAPP: recovery failed (%016llx)\n", reg);
+			ret = OPAL_HARDWARE;
+			break;
+		} else if ((reg & PPC_BIT(0)) && (!(reg & PPC_BIT(1)))) {
+			PHBDBG(p, "CAPP: recovery in progress\n");
+			ret = OPAL_BUSY;
+			break;
+		}
+
+		/*
+		 * Mark the CAPP attached to the PHB right away so that
+		 * if a MCE happens during CAPP init we can handle it.
+		 * In case of an error in CAPP init we remove the PHB
+		 * from the attached_mask later.
+		 */
+		capp->phb = phb;
+		capp->attached_pe = pe_number;
+
+		if (mode == OPAL_PHB_CAPI_MODE_DMA_TVT1)
+			ret = enable_capi_mode(p, pe_number,
+					       CAPP_MIN_STQ_ENGINES |
+					       CAPP_MAX_DMA_READ_ENGINES);
+
+		else
+			ret = enable_capi_mode(p, pe_number,
+					       CAPP_MAX_STQ_ENGINES |
+					       CAPP_MIN_DMA_READ_ENGINES);
+		if (ret == OPAL_SUCCESS) {
+			/* Disable fast reboot for CAPP */
+			disable_fast_reboot("CAPP being enabled");
+		} else {
+			/* In case of an error mark the PHB detached */
+			capp->phb = NULL;
+			capp->attached_pe = phb4_get_reserved_pe_number(phb);
+		}
+		break;
+
 	default:
 		ret = OPAL_UNSUPPORTED;
-	}
+		break;
+	};
 
 	return ret;
 }
