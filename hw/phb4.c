@@ -3310,6 +3310,15 @@ static int64_t phb4_creset(struct pci_slot *slot)
 		/* Clear error inject register, preventing recursive errors */
 		xscom_write(p->chip_id, p->pe_xscom + 0x2, 0x0);
 
+		/* Prevent HMI when PHB gets fenced as we are disabling CAPP */
+		if (p->flags & PHB4_CAPP_DISABLE) {
+			/* Since no HMI, So set the recovery flag manually. */
+			p->flags |= PHB4_CAPP_RECOVERY;
+			xscom_write_mask(p->chip_id, CAPP_FIR_MASK +
+					 PHB4_CAPP_REG_OFFSET(p),
+					 PPC_BIT(31), PPC_BIT(31));
+		}
+
 		/* Force fence on the PHB to work around a non-existent PE */
 		if (!phb4_fenced(p))
 			xscom_write(p->chip_id, p->pe_stk_xscom + 0x2,
