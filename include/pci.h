@@ -401,6 +401,9 @@ struct phb {
 
 	/* Additional data the platform might need to attach */
 	void			*platform_data;
+
+	/* Any capp instance attached to the PHB */
+	struct capp 		*capp;
 };
 
 static inline void phb_lock(struct phb *phb)

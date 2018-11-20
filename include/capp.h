@@ -79,6 +79,13 @@ struct capp_ops {
 	int64_t (*get_capp_info)(int, struct phb *, struct capp_info *);
 };
 
+struct capp {
+	struct phb *phb;
+	unsigned int capp_index;
+	uint64_t capp_xscom_offset;
+	uint64_t attached_pe;
+};
+
 struct proc_chip;
 extern struct lock capi_lock;
 extern struct capp_ops capi_ops;
